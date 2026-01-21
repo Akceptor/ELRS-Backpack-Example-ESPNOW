@@ -2,12 +2,16 @@
 #ifndef CRSF_H
 #define CRSF_H
 
-// Deklarationen der Variablen
+#include <stdint.h>
+
+// Variable declarations
 extern int16_t espnow_len;
 extern int16_t crsf_len;
 extern bool espnow_received;
 
-// Hier die Prototypen der Funktionen und Deklarationen der Variablen
-void crsfReceive();  // Beispiel für eine Funktion
+// Function prototypes and variable declarations
+void crsfBegin();
+void crsfStoreEspnowPacket(const uint8_t *data, uint8_t len);
+void crsfReceive();  // Example function
 
 #endif
