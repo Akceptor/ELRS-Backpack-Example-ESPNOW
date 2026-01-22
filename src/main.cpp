@@ -10,12 +10,16 @@
 #include <esp_wifi.h>
 #include <esp_now.h>
 #include <WebServer.h>
+#include <WebSocketsServer.h>
+#include <LittleFS.h>
 #include <Preferences.h>
 #include <MD5Builder.h>
 #else
 #include <ESP8266WiFi.h>
 #include <espnow.h>
 #include <ESP8266WebServer.h>
+#include <WebSocketsServer.h>
+#include <LittleFS.h>
 #include <EEPROM.h>
 #include <Hash.h>
 #endif
@@ -32,9 +36,11 @@ static const size_t UID_LEN = 6;
 
 #ifdef ESP32
 WebServer server(80);
+WebSocketsServer wsServer(81);
 Preferences prefs;
 #else
 ESP8266WebServer server(80);
+WebSocketsServer wsServer(81);
 #endif
 
 static String uidToString(const uint8_t *uid) {
@@ -123,43 +129,29 @@ static void saveUidToStorage() {
 #endif
 
 static void handleRoot() {
+  File f = LittleFS.open("/index.html", "r");
+  if (!f) {
+    server.send(500, "text/plain", "Missing /index.html");
+    return;
+  }
+  server.streamFile(f, "text/html");
+  f.close();
+}
+
+static void handleSettings() {
   String uidStr = uidToString(UID);
-  static const char kIndexHtml[] PROGMEM = R"HTML(
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>ELRS Binding</title>
-    <style>
-      body { font-family: Arial, sans-serif; margin: 24px; color: #222; }
-      .card { max-width: 460px; padding: 16px; border: 1px solid #ccc; border-radius: 8px; }
-      label { display: block; margin-bottom: 8px; font-weight: 600; }
-      input { width: 100%; padding: 8px; margin-bottom: 12px; }
-      button { padding: 8px 12px; }
-      .hint { font-size: 12px; color: #555; }
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <h2>Binding Phrase</h2>
-      <form action="/set" method="post">
-        <label for="phrase">Phrase</label>
-        <input id="phrase" name="phrase" type="text" maxlength="64" required>
-        <button type="submit">Save UID</button>
-      </form>
-      <p class="hint">Current UID: %UID%</p>
-      <div class="hint">UID will be derived like ExpressLRS: md5("-DMY_BINDING_PHRASE=\"phrase\""), first 6 bytes.</div>
-    </div>
-  </body>
-</html>
-)HTML";
-  String page = String(kIndexHtml);
+  File f = LittleFS.open("/settings.html", "r");
+  if (!f) {
+    server.send(500, "text/plain", "Missing /settings.html");
+    return;
+  }
+  String page = f.readString();
+  f.close();
   page.replace("%UID%", uidStr);
   server.send(200, "text/html", page);
 }
 
-static void handleSet() {
+static void handleSettingsPost() {
   String phrase = server.arg("phrase");
   phrase.trim();
   if (phrase.length() == 0) {
@@ -178,6 +170,15 @@ static void handleSet() {
   Serial.println(uidToString(UID));
   delay(200);
   ESP.restart();
+}
+
+static void handleWsEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
+  (void)num;
+  (void)payload;
+  (void)length;
+  if (type == WStype_CONNECTED) {
+    // No-op for now
+  }
 }
     
 // Callback when data is received
@@ -198,6 +199,9 @@ void setup() {
   // Init Serial Monitor
   Serial.begin(115200);
   Serial.println("Start");
+  if (!LittleFS.begin()) {
+    Serial.println("LittleFS mount failed");
+  }
   crsfBegin();
   if (loadUidFromStorage()) {
     Serial.print("Loaded UID from storage: ");
@@ -224,9 +228,11 @@ void setup() {
   // Start the device in Access Point mode with the specified SSID and password
   WiFi.softAP(ssid, password);
   server.on("/", HTTP_GET, handleRoot);
-  server.on("/set", HTTP_POST, handleSet);
-  server.on("/set", HTTP_GET, handleSet);
+  server.on("/settings", HTTP_GET, handleSettings);
+  server.on("/settings", HTTP_POST, handleSettingsPost);
   server.begin();
+  wsServer.begin();
+  wsServer.onEvent(handleWsEvent);
   // Init ESP-NOW
   #ifdef ESP32
   if (esp_now_init() != ESP_OK) {
@@ -251,6 +257,21 @@ void setup() {
 
 void loop() {
   server.handleClient();
+  wsServer.loop();
+  static uint32_t lastWsSend = 0;
+  if (millis() - lastWsSend >= 200) {
+    lastWsSend = millis();
+    String msg = "{";
+    msg += "\"batt_v\":" + String(crsf_batt_volts, 1) + ",";
+    msg += "\"batt_a\":" + String(crsf_batt_amps, 1) + ",";
+    msg += "\"batt_mah\":" + String(crsf_batt_mah) + ",";
+    msg += "\"pitch\":" + String(crsf_att_pitch, 1) + ",";
+    msg += "\"roll\":" + String(crsf_att_roll, 1) + ",";
+    msg += "\"yaw\":" + String(crsf_att_yaw, 1) + ",";
+    msg += "\"mode\":\"" + String(crsf_flight_mode) + "\"";
+    msg += "}";
+    wsServer.broadcastTXT(msg);
+  }
   // Only for CRSF output
   crsfReceive();
 }

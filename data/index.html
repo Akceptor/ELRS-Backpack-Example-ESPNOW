@@ -1,0 +1,275 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>ELRS Telemetry</title>
+    <style>
+      :root {
+        --sky: #1fa6ff;
+        --ground: #6b3b26;
+        --ring: #e6eef6;
+        --tick: rgba(255,255,255,0.9);
+        --text: #0f1720;
+        --muted: #536171;
+        --card: #ffffff;
+      }
+      * { box-sizing: border-box; }
+      body { font-family: Arial, sans-serif; margin: 18px; color: var(--text); background: #f2f5f8; }
+      .wrap { display: grid; gap: 16px; grid-template-columns: 1fr; }
+      @media (min-width: 720px) {
+        .wrap { grid-template-columns: 360px 1fr; align-items: start; }
+      }
+      .panel { background: var(--card); border: 1px solid #d6dde5; border-radius: 12px; padding: 14px; }
+      .title { font-weight: 700; margin: 0 0 10px; }
+      .row { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 8px; margin: 8px 0; }
+      .label { font-weight: 600; }
+      .value { font-family: monospace; }
+      .hint { font-size: 12px; color: var(--muted); margin-top: 12px; }
+      a { color: #1a73e8; text-decoration: none; }
+      .icon { width: 20px; height: 20px; display: inline-block; }
+      .icon svg { width: 20px; height: 20px; display: block; }
+
+      .horizon-wrap { display: grid; gap: 10px; }
+      .horizon {
+        width: 100%;
+        max-width: 520px;
+        aspect-ratio: 1 / 1;
+        border-radius: 50%;
+        overflow: hidden;
+        border: 3px solid #1d2631;
+        margin: 0 auto;
+        background: #0b1220;
+        position: relative;
+      }
+      .horizon .sky {
+        position: absolute;
+        left: -25%;
+        top: -25%;
+        width: 150%;
+        height: 150%;
+        transform-origin: 50% 50%;
+      }
+      .horizon .sky .half-sky {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 50%;
+        background: var(--sky);
+      }
+      .horizon .sky .half-ground {
+        position: absolute;
+        left: 0;
+        top: 50%;
+        width: 100%;
+        height: 50%;
+        background: var(--ground);
+      }
+      .horizon .pitch-lines {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+      .horizon .pitch-line {
+        position: absolute;
+        left: 15%;
+        width: 70%;
+        height: 1px;
+        background: var(--tick);
+        opacity: 0.9;
+      }
+      .horizon .pitch-line.small {
+        left: 30%;
+        width: 40%;
+        opacity: 0.6;
+      }
+      .horizon .bank-ring {
+        position: absolute;
+        left: 8%;
+        top: 8%;
+        width: 84%;
+        height: 84%;
+        border-radius: 50%;
+        border: 2px solid var(--ring);
+        pointer-events: none;
+      }
+      .horizon .aircraft {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 160px;
+        height: 10px;
+        margin-left: -80px;
+        margin-top: -5px;
+        border-top: 3px solid #0b0f15;
+        border-bottom: 3px solid #0b0f15;
+      }
+      .horizon .aircraft:before,
+      .horizon .aircraft:after {
+        content: "";
+        position: absolute;
+        top: -3px;
+        width: 28px;
+        height: 6px;
+        background: #0b0f15;
+      }
+      .horizon .aircraft:before { left: -14px; }
+      .horizon .aircraft:after { right: -14px; }
+      .horizon .center-dot {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 8px;
+        height: 8px;
+        margin-left: -4px;
+        margin-top: -4px;
+        background: #0b0f15;
+        border-radius: 50%;
+      }
+      .readout {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        font-family: monospace;
+        font-size: 13px;
+        text-align: center;
+      }
+      .readout span { display: block; }
+      .yaw-indicator {
+        position: relative;
+        height: 28px;
+        border: 1px solid #d6dde5;
+        border-radius: 999px;
+        overflow: hidden;
+        background: #f7fafc;
+        margin-top: 6px;
+      }
+      .yaw-indicator .ticks {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-image: linear-gradient(90deg, rgba(0,0,0,0.15) 1px, transparent 1px);
+        background-size: 20px 100%;
+      }
+      .yaw-indicator .needle {
+        position: absolute;
+        top: 0;
+        width: 2px;
+        height: 100%;
+        background: #0b0f15;
+        transform: translateX(-1px);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="panel">
+        <h3 class="title">Status</h3>
+        <div class="row">
+          <span class="icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#0f1720" stroke-width="2">
+              <path d="M4 18h16M6 18l6-12 6 12"/>
+            </svg>
+          </span>
+          <span class="label">Flight mode</span>
+          <span id="mode" class="value">--</span>
+        </div>
+        <div class="row">
+          <span class="icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#0f1720" stroke-width="2">
+              <rect x="3" y="7" width="16" height="10" rx="2"/>
+              <path d="M21 10v4"/>
+            </svg>
+          </span>
+          <span class="label">Battery</span>
+          <span id="batt" class="value">--</span>
+        </div>
+        <div class="row">
+          <span class="icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#0f1720" stroke-width="2">
+              <circle cx="12" cy="12" r="9"/>
+              <path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>
+            </svg>
+          </span>
+          <span class="label">Attitude (deg)</span>
+          <span id="att" class="value">--</span>
+        </div>
+        <div class="hint"><a href="/settings">Settings</a></div>
+      </div>
+      <div class="panel horizon-wrap">
+        <h3 class="title">Artificial Horizon</h3>
+        <div class="horizon">
+          <div id="sky" class="sky">
+            <div class="half-sky"></div>
+            <div class="half-ground"></div>
+          </div>
+          <div class="bank-ring"></div>
+          <div id="pitchLines" class="pitch-lines"></div>
+          <div class="aircraft"></div>
+          <div class="center-dot"></div>
+        </div>
+        <div class="readout">
+          <div><span>Pitch</span><span id="pitchVal">--</span></div>
+          <div><span>Roll</span><span id="rollVal">--</span></div>
+          <div><span>Yaw</span><span id="yawVal">--</span></div>
+        </div>
+        <div class="yaw-indicator" aria-label="Yaw indicator">
+          <div class="ticks"></div>
+          <div id="yawNeedle" class="needle"></div>
+        </div>
+      </div>
+    </div>
+    <script>
+      (function() {
+        var pitchLines = document.getElementById('pitchLines');
+        for (var i = -40; i <= 40; i += 10) {
+          var line = document.createElement('div');
+          line.className = 'pitch-line' + (i % 20 === 0 ? '' : ' small');
+          line.style.top = (50 - i) + '%';
+          pitchLines.appendChild(line);
+        }
+
+        var sky = document.getElementById('sky');
+        var yawNeedle = document.getElementById('yawNeedle');
+        function update(d) {
+          document.getElementById('mode').textContent = d.mode || '--';
+          document.getElementById('batt').textContent =
+            (d.batt_v != null ? d.batt_v.toFixed(1) + 'V' : '--') + ' ' +
+            (d.batt_a != null ? d.batt_a.toFixed(1) + 'A' : '');
+          document.getElementById('att').textContent =
+            (d.pitch != null ? d.pitch.toFixed(1) : '--') + ', ' +
+            (d.roll != null ? d.roll.toFixed(1) : '--') + ', ' +
+            (d.yaw != null ? d.yaw.toFixed(1) : '--');
+          document.getElementById('pitchVal').textContent = d.pitch != null ? d.pitch.toFixed(1) + ' deg' : '--';
+          document.getElementById('rollVal').textContent = d.roll != null ? d.roll.toFixed(1) + ' deg' : '--';
+          document.getElementById('yawVal').textContent = d.yaw != null ? d.yaw.toFixed(1) + ' deg' : '--';
+
+          var pitch = d.pitch || 0;
+          var roll = d.roll || 0;
+          var yaw = d.yaw || 0;
+          sky.style.transform = 'translateY(' + (pitch * 1.2) + 'px) rotate(' + (-roll) + 'deg)';
+          var yawNorm = ((yaw % 360) + 360) % 360;
+          yawNeedle.style.left = (yawNorm / 360 * 100) + '%';
+        }
+
+        var ws;
+        function connect() {
+          ws = new WebSocket('ws://' + location.hostname + ':81/');
+          ws.onmessage = function(evt) {
+            try { update(JSON.parse(evt.data)); } catch (e) {}
+          };
+          ws.onclose = function() {
+            setTimeout(connect, 1000);
+          };
+        }
+        connect();
+      })();
+    </script>
+  </body>
+</html>
